@@ -4,9 +4,10 @@ from lib.database import Base
 from sqlalchemy import String, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import uuid
+from models.cardModel import Card
 
 if TYPE_CHECKING:
-    from models.cardModel import Card
+    pass
 
 
 class User(Base):
@@ -27,5 +28,8 @@ class User(Base):
         String(50), nullable=False, default="default", server_default="default"
     )
     cards: Mapped[list["Card"]] = relationship(
-        "Card", back_populates="user", cascade="all, delete-orphan"
+        "Card",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by=lambda: Card.id.asc(),
     )

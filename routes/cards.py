@@ -24,7 +24,12 @@ def get_my_card(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[CardPublic]:
-    cards = db.query(Card).filter(Card.user_id == current_user.id).all()
+    cards = (
+        db.query(Card)
+        .filter(Card.user_id == current_user.id)
+        .order_by(Card.id.asc())
+        .all()
+    )
     return [CardPublic.model_validate(card) for card in cards]
 
 

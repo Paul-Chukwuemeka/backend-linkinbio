@@ -4,10 +4,10 @@ from lib.database import Base
 from sqlalchemy import Integer, String, UUID, ForeignKey, UniqueConstraint
 import uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from models.LinkModel import Link
 
 if TYPE_CHECKING:
     from models.cardModel import Card
-    from models.LinkModel import Link
 
 
 
@@ -25,7 +25,11 @@ class Collection(Base):
         Integer, nullable=False, default=0, server_default="0"
     )
     links: Mapped[list["Link"]] = relationship(
-        "Link", back_populates="collection", cascade="all, delete", passive_deletes=True
+        "Link",
+        back_populates="collection",
+        cascade="all, delete",
+        passive_deletes=True,
+        order_by=lambda: (Link.position.asc(), Link.id.asc()),
     )
     card: Mapped["Card"] = relationship("Card", back_populates="collections")
     card_id: Mapped[uuid.UUID] = mapped_column(

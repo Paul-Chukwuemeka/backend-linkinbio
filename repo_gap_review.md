@@ -9,170 +9,134 @@ Reviewed on 2026-03-23 for the current backend workspace only.
 - `Medium`: important mismatch, incomplete validation, or maintainability gap
 - `Low`: hygiene, tooling, or project-setup gap
 
-## Critical
+## Resolved Since Initial Review
 
-### 1. Application startup is coupled to a live database connection
+- Safe app import/startup path: `main.py` no longer touches the database at import time, and `lib/database.py` now exposes lazy engine/session getters.
+- Profile setup API: `GET /profile/me` and `PATCH /profile/me` now exist, and `User` now has `bio`, `avatar_url`, and `theme`.
+- Auth refresh support: auth responses now include both `access_token` and `refresh_token`, and `POST /auth/refresh` exists.
+- Card deletion: `DELETE /cards/{card_id}` now exists.
+- Ordered relationship reads: `card.links`, `card.collections`, `collection.links`, and `user.cards` now have deterministic ordering.
+- Alembic scaffolding exists and loads successfully.
 
-- Severity: `Critical`
-- Missing: safe startup/import path when the database is unavailable
-- Evidence:
-  - `main.py:11` runs `Base.metadata.create_all(bind=engine)` at import time
-  - `lib/database.py:9-14` requires `CONNECTION_STRING` and creates the engine immediately
-- Impact:
-  - Importing the app fails if the configured database is not reachable
-  - This was observed during review when `import main` raised `sqlalchemy.exc.OperationalError`
+## Current Open Issues
 
 ## High
 
-### 2. Profile setup is largely unimplemented
+### 1. Logout and server-side session revocation are still missing
 
 - Severity: `High`
 - Missing:
-  - profile update endpoint
-  - authenticated profile read at `/profile/me`
-  - profile fields for bio, avatar, theme, and richer display customization
-- Evidence:
-  - `routes/profile.py:11-17` only exposes public `GET /profile/{username}`
-  - `routes/auth.py:66-68` exposes `GET /auth/me`, not `GET /profile/me`
-  - `models/userModel.py:18-23` only stores `username`, `password`, `email`, `fullname`
-  - `schemas/profile.py:7-13` only returns `id`, `username`, `fullname`, `cards`
-- Impact:
-  - the repo does not satisfy the documented profile setup feature
-  - public profiles cannot expose theme/avatar/bio because the data is absent
-
-### 3. Auth flow is incomplete
-
-- Severity: `High`
-- Missing:
-  - refresh tokens
   - logout endpoint/flow
+  - server-side revocation for refresh tokens
 - Evidence:
-  - `project.md:20` describes `JWT (access + refresh tokens)`
-  - `project.md:28` lists register, log in, and log out
-  - `schemas/auth.py:26-29` returns only `access_token`
-  - `routes/auth.py:15-68` has signup, login, and me routes only
+  - `project.md:28` documents "Register, log in, log out with JWT-based authentication"
+  - `routes/auth.py` currently exposes `signup`, `login`, `refresh`, and `me`, but no logout route
+  - refresh tokens are stateless JWTs in `lib/security.py`; there is no session table or revocation store
 - Impact:
-  - clients cannot refresh sessions without full re-login
-  - logout semantics are undefined
+  - clients cannot perform a true server-side logout
+  - a leaked refresh token remains usable until expiry
 
-### 4. Card deletion is missing
+### 2. Alembic migration history cannot bootstrap a fresh database
 
 - Severity: `High`
-- Missing: delete endpoint for cards
+- Missing:
+  - an initial schema migration that creates the base tables
 - Evidence:
-  - `routes/cards.py:22-246` contains list, create, get, update, and reorder handlers
-  - there is no `@router.delete("/{card_id}")` route
+  - `alembic/versions/e88fd052f423_update.py` only adds `bio`, `avatar_url`, and `theme` to `users`
+  - `alembic/versions/f5e9e5f431e4_update.py` is a no-op
+  - `alembic upgrade head --sql` emits `ALTER TABLE users ADD COLUMN ...` without any `CREATE TABLE users`, `cards`, `links`, or `collections`
 - Impact:
-  - users can create cards but cannot remove them through the API
-
-### 5. Collection reorder is missing despite schema support
-
-- Severity: `High`
-- Missing: route for batch reordering collections
-- Evidence:
-  - `schemas/collections.py:23-30` defines `CollectionReorderItem` and `CollectionReorderRequest`
-  - `routes/collections.py:14-18` imports `CollectionReorderRequest`
-  - `routes/collections.py:24-154` never uses it
-- Impact:
-  - collection ordering can only be changed indirectly through mixed card-item reorder
-  - the collection-specific reorder contract appears unfinished
-
-### 6. Ordered reads are not guaranteed after reordering
-
-- Severity: `High`
-- Missing: stable ordering on ORM relationships used by public and card detail responses
-- Evidence:
-  - `models/cardModel.py:25-30` defines `links` and `collections` relationships without `order_by`
-  - `models/CollectionModel.py:27-29` defines `links` without `order_by`
-  - `schemas/cards.py:16-23` and `schemas/profile.py:7-13` serialize those relationship lists directly
-- Impact:
-  - reorder endpoints may succeed while subsequent reads return items in database/default relationship order
-  - this is especially risky for `GET /profile/{username}` and `GET /cards/{card_id}`
+  - Alembic can patch an existing database but cannot initialize a new one from scratch
+  - schema history is not yet reliable for new environments
 
 ## Medium
 
-### 7. Project spec and implemented auth routes do not match
-
-- Severity: `Medium`
-- Missing: either the documented `/auth/register` route or updated documentation
-- Evidence:
-  - `project.md:89` documents `POST /auth/register`
-  - `routes/auth.py:15` implements `POST /auth/signup`
-- Impact:
-  - frontend/client integration will break if it follows the current project spec
-
-### 8. Documented user and link fields are missing from the models
+### 3. Project spec and implemented auth routes still do not match
 
 - Severity: `Medium`
 - Missing:
-  - user: `bio`, `avatar_url`, `theme`, `created_at`
+  - either the documented `/auth/register` route or updated documentation
+- Evidence:
+  - `project.md:89` documents `POST /auth/register`
+  - `routes/auth.py` implements `POST /auth/signup`
+- Impact:
+  - frontend/client integration will break if it follows `project.md` literally
+
+### 4. Project spec and implemented profile/auth capabilities are still partially out of sync
+
+- Severity: `Medium`
+- Missing:
+  - documentation updates for refresh flow and current route set
+- Evidence:
+  - `project.md` does not mention `POST /auth/refresh`
+  - `project.md` still treats logout as present, but it is not implemented
+- Impact:
+  - the code and the written contract now diverge in multiple places
+
+### 5. Data model still does not fully match the documented product spec
+
+- Severity: `Medium`
+- Missing:
+  - user: `created_at`, and a decision between `display_name` vs the current `fullname`
   - link: `is_active`, `created_at`
 - Evidence:
   - `project.md:71-80` lists those fields in the data model
-  - `models/userModel.py:15-23` and `models/LinkModel.py:17-35` do not define them
+  - `models/userModel.py` now has `bio`, `avatar_url`, and `theme`, but still no `created_at`
+  - `models/LinkModel.py` still has no `is_active` or `created_at`
 - Impact:
-  - the persisted schema does not match the product spec
-  - future features will require schema expansion before implementation can begin
+  - the persisted schema still does not fully match the project spec
+  - future product features will need more schema changes
 
-### 9. Link reorder inside collections is only partially validated
+### 6. Link reorder inside collections is still only partially validated
 
 - Severity: `Medium`
 - Missing:
   - duplicate position validation
-  - contiguous/full-payload validation similar to top-level card reorder
+  - full/contiguous payload validation comparable to top-level mixed-item reorder
 - Evidence:
-  - `routes/links.py:117-172` only checks duplicate ids and existence
-  - `routes/cards.py:181-202` performs stricter validation for top-level mixed-item reorder
+  - `routes/links.py` checks duplicate ids and existence only
+  - `routes/cards.py` does stricter validation for top-level mixed-item reorder
 - Impact:
   - collection link ordering can drift into duplicate or partial states more easily than top-level ordering
 
-### 10. Input validation is weaker than the domain suggests
+### 7. Input validation is still weaker than the domain suggests
 
 - Severity: `Medium`
 - Missing:
   - typed email validation
   - typed URL validation
 - Evidence:
-  - `schemas/auth.py:14-18` uses plain `str` for email
-  - `schemas/links.py:5-15` uses plain `str` for URL
+  - `schemas/auth.py` uses plain `str` for email
+  - `schemas/links.py` uses plain `str` for URL
 - Impact:
   - invalid emails and malformed URLs can pass validation and become stored data
 
-### 11. Database strategy in docs and runtime setup is out of sync
+### 8. Database strategy in docs and runtime setup is still out of sync
 
 - Severity: `Medium`
-- Missing: one clear database story across docs, env setup, and dependencies
+- Missing:
+  - one clear database story across docs, env setup, and dependencies
 - Evidence:
   - `project.md:19` says SQLite
-  - `lib/database.py:9-14` expects a generic `CONNECTION_STRING`
-  - `requirements.txt:14` includes `psycopg2-binary`
+  - `lib/database.py` expects `CONNECTION_STRING`
+  - the current environment and dependencies are PostgreSQL-oriented
 - Impact:
-  - onboarding and deployment assumptions are unclear
-  - current environment appears closer to PostgreSQL than SQLite
+  - onboarding and deployment assumptions remain unclear
 
 ## Low
 
-### 12. Schema migrations are missing
+### 9. Automated tests are still missing
 
 - Severity: `Low`
-- Missing: Alembic or equivalent migration workflow
-- Evidence:
-  - no `alembic.ini` or `alembic/` directory was found in the backend repo
-  - `main.py:11` relies on `create_all()` instead
-- Impact:
-  - schema evolution will become brittle once production data exists
-
-### 13. Automated tests are missing
-
-- Severity: `Low`
-- Missing: test suite and test runner config
+- Missing:
+  - test suite
+  - test runner config
 - Evidence:
   - no `tests/`, `pytest.ini`, or `pyproject.toml` was found in the backend repo
-  - `requirements.txt` contains no test tooling
 - Impact:
   - regressions in auth, ordering, and ownership checks are easy to miss
 
-### 14. Setup documentation is missing
+### 10. Setup documentation is still missing
 
 - Severity: `Low`
 - Missing:
@@ -183,7 +147,19 @@ Reviewed on 2026-03-23 for the current backend workspace only.
   - no backend `README*` file was found
   - runtime-required env vars are implied by `lib/database.py` and `lib/security.py`
 - Impact:
-  - a new developer has no authoritative setup path
+  - a new developer still has no authoritative setup path
+
+### 11. Collection-only reorder artifacts are still unused
+
+- Severity: `Low`
+- Missing:
+  - cleanup of unused schema/imports, or a deliberate collection-only reorder route
+- Evidence:
+  - `schemas/collections.py` still defines `CollectionReorderRequest`
+  - `routes/collections.py` still imports it but does not use it
+- Impact:
+  - the API surface looks more complex than it really is
+  - this can mislead future implementation or client work
 
 ## Notes
 
