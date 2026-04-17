@@ -1,13 +1,16 @@
 from logging.config import fileConfig
 
 from alembic import context
+from dotenv import load_dotenv
+
+load_dotenv()
 from sqlalchemy import engine_from_config, pool
 
 from lib.database import Base, get_database_url
-import models.CollectionModel  # noqa: F401
-import models.LinkModel  # noqa: F401
-import models.cardModel  # noqa: F401
-import models.userModel  # noqa: F401
+import models.collection_model
+import models.link_model
+import models.card_model
+import models.user_model
 
 
 def get_alembic_database_url() -> str:
@@ -48,10 +51,15 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    url = config.get_main_option("sqlalchemy.url")
+    if not url:
+        url = os.getenv("CONNECTION_STRING")
+    
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        url=url
     )
 
     with connectable.connect() as connection:

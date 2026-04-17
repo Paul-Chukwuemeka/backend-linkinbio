@@ -21,7 +21,13 @@ def get_database_url() -> str:
 
 @lru_cache
 def get_engine() -> Engine:
-    return create_engine(get_database_url(), pool_pre_ping=True)
+    return create_engine(
+        get_database_url(),
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        pool_timeout=30,
+    )
 
 
 @lru_cache

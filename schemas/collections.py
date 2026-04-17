@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 import uuid
+from schemas.links import LinkPublic
 
 
 class CollectionPublic(BaseModel):
@@ -9,6 +10,7 @@ class CollectionPublic(BaseModel):
     title: str
     card_id: uuid.UUID
     position: int
+    links: list[LinkPublic]
 
 
 class CollectionCreate(BaseModel):

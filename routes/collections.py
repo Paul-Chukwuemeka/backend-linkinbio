@@ -7,10 +7,10 @@ from sqlalchemy.orm import Session
 
 from lib.auth import get_current_user
 from lib.database import get_db
-from models.cardModel import Card
-from models.CollectionModel import Collection
-from models.LinkModel import Link
-from models.userModel import User
+from models.card_model import Card
+from models.collection_model import Collection
+from models.link_model import Link
+from models.user_model import User
 from schemas.collections import (
     CollectionCreate,
     CollectionPublic,
@@ -129,6 +129,8 @@ def update_collection(
         )
     db.refresh(collection)
     return CollectionPublic.model_validate(collection)
+
+
 
 
 @router.delete("/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)

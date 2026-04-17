@@ -1,10 +1,10 @@
 from typing import TYPE_CHECKING
 
 from lib.database import Base
-from sqlalchemy import String, UUID
+from sqlalchemy import String, UUID,ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import uuid
-from models.cardModel import Card
+from models.card_model import Card
 
 if TYPE_CHECKING:
     pass
@@ -32,4 +32,7 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
         order_by=lambda: Card.id.asc(),
+    )
+    current_card: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),nullable=True
     )

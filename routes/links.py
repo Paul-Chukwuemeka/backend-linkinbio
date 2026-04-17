@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 
 from lib.auth import get_current_user
 from lib.database import get_db
-from models.cardModel import Card
-from models.CollectionModel import Collection
-from models.LinkModel import Link
-from models.userModel import User
+from models.card_model import Card
+from models.collection_model import Collection
+from models.link_model import Link
+from models.user_model import User
 from schemas.links import LinkCreate, LinkMove, LinkPublic, LinkReorderRequest, LinkUpdate
 
 router = APIRouter(prefix="/links", tags=["links"])

@@ -3,20 +3,66 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from lib.auth import get_current_user
 from lib.database import get_db
-from models.cardModel import Card
-from models.CollectionModel import Collection
-from models.LinkModel import Link
-from models.userModel import User
-from schemas.cards import CardCreate, CardPublic, CardUpdate
+from models.card_model import Card
+from models.collection_model import Collection
+from models.link_model import Link
+from models.user_model import User
+from schemas.cards import CardCreate, CardPublic,CardPublicList, CardUpdate, CardItem, CardItemReorderRequest, CardItemType,CardStyleUpdate
 from schemas.collections import CollectionPublic
-from schemas.items import CardItem, CardItemReorderRequest, CardItemType
 from schemas.links import LinkPublic
 
 router = APIRouter(prefix="/cards", tags=["cards"],)
+
+
+def build_card_items_list(
+    card_id: UUID, db: Session
+) -> list[CardItem]:
+    """Build a merged, position-sorted list of top-level links and collections."""
+    collections = (
+        db.query(Collection)
+        .options(selectinload(Collection.links))
+        .filter(Collection.card_id == card_id)
+        .order_by(Collection.position.asc(), Collection.id.asc())
+        .all()
+    )
+    links = (
+        db.query(Link)
+        .filter(Link.card_id == card_id, Link.collection_id.is_(None))
+        .order_by(Link.position.asc(), Link.id.asc())
+        .all()
+    )
+
+    items: list[CardItem] = []
+    for collection in collections:
+        items.append(
+            CardItem(
+                type=CardItemType.collection,
+                position=collection.position,
+                content=CollectionPublic.model_validate(collection),
+            )
+        )
+    for link in links:
+        items.append(
+            CardItem(
+                type=CardItemType.link,
+                position=link.position,
+                content=LinkPublic.model_validate(link),
+            )
+        )
+
+    items.sort(
+        key=lambda item: (
+            item.position,
+            0 if item.type == CardItemType.collection else 1,
+        )
+    )
+    return items
+
+
 
 
 @router.get("/me", response_model=list[CardPublic])
@@ -26,6 +72,7 @@ def get_my_card(
 ) -> list[CardPublic]:
     cards = (
         db.query(Card)
+        .options(selectinload(Card.links), selectinload(Card.collections))
         .filter(Card.user_id == current_user.id)
         .order_by(Card.id.asc())
         .all()
@@ -39,9 +86,7 @@ def create_card(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CardPublic:
-    name = ((payload.name if payload else None) or "").strip()
-    if not name:
-        name = "Untitled"
+    name = ((payload.name if payload else None) or "").strip() or "Untitled"
     card = Card(user_id=current_user.id, name=name)
     db.add(card)
     try:
@@ -52,17 +97,37 @@ def create_card(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Could not create card",
         )
-
     db.refresh(card)
     return CardPublic.model_validate(card)
 
 
-@router.get("/{card_id}", response_model=CardPublic)
-def get_card_by_id(
+
+@router.get("/current/list", response_model=CardPublicList)
+def get_current_card(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CardPublicList:
+    """Return the authenticated user's current (active) card with its full items list."""
+    card = (
+        db.query(Card)
+        .filter(Card.id == current_user.current_card)
+        .first()
+    )
+    if not card:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No current card set",
+        )
+    card.items_list = build_card_items_list(card.id, db)
+    return CardPublicList.model_validate(card)
+
+
+@router.get("/{card_id}/list",response_model=CardPublicList)
+def list_card_items(
     card_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> CardPublic:
+) -> CardPublicList:
     card = (
         db.query(Card)
         .filter(Card.id == card_id, Card.user_id == current_user.id)
@@ -70,7 +135,29 @@ def get_card_by_id(
     )
     if not card:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
-    return CardPublic.model_validate(card)
+
+    card.items_list = build_card_items_list(card_id, db)
+    return CardPublicList.model_validate(card)
+
+
+@router.get("/{card_id}",response_model=CardPublicList)
+def get_card_by_id(
+    card_id: UUID,
+    db:Session = Depends(get_db)
+):
+    card = (
+        db.query(Card)
+        .options(selectinload(Card.user))
+        .filter(Card.id == card_id)
+        .first()
+    )
+    if not card:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
+
+    card.items_list = build_card_items_list(card_id, db)
+    return CardPublicList.model_validate(card)
+
+
 
 
 @router.patch("/{card_id}", response_model=CardPublic)
@@ -102,6 +189,32 @@ def update_card(
     return CardPublic.model_validate(card)
 
 
+
+@router.patch("/{card_id}/style", response_model=CardPublic)
+def update_card_style(
+    card_id: UUID,
+    payload: CardStyleUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CardPublic:
+    card = (
+        db.query(Card)
+        .filter(Card.id == card_id, Card.user_id == current_user.id)
+        .first()
+    )
+    if not card:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
+
+    if payload.style is not None:
+        card.style = payload.style.model_dump()
+
+    db.commit()
+    db.refresh(card)
+    return CardPublic.model_validate(card)
+
+
+
+
 @router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_card(
     card_id: UUID,
@@ -121,59 +234,8 @@ def delete_card(
     return None
 
 
-@router.get("/{card_id}/items", response_model=list[CardItem])
-def list_card_items(
-    card_id: UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> list[CardItem]:
-    card = (
-        db.query(Card)
-        .filter(Card.id == card_id, Card.user_id == current_user.id)
-        .first()
-    )
-    if not card:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
 
-    collections = (
-        db.query(Collection)
-        .filter(Collection.card_id == card_id)
-        .all()
-    )
-    links = (
-        db.query(Link)
-        .filter(Link.card_id == card_id, Link.collection_id.is_(None))
-        .all()
-    )
-
-    items: list[CardItem] = []
-    for collection in collections:
-        items.append(
-            CardItem(
-                type=CardItemType.collection,
-                position=collection.position,
-                collection=CollectionPublic.model_validate(collection),
-            )
-        )
-    for link in links:
-        items.append(
-            CardItem(
-                type=CardItemType.link,
-                position=link.position,
-                link=LinkPublic.model_validate(link),
-            )
-        )
-
-    items.sort(
-        key=lambda item: (
-            item.position,
-            0 if item.type == CardItemType.collection else 1,
-        )
-    )
-    return items
-
-
-@router.patch("/{card_id}/items/reorder", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch("/{card_id}/reorder", status_code=status.HTTP_204_NO_CONTENT)
 def reorder_card_items(
     card_id: UUID,
     payload: CardItemReorderRequest,
@@ -268,3 +330,5 @@ def reorder_card_items(
 
     db.commit()
     return None
+
+

@@ -4,10 +4,10 @@ from lib.database import Base
 from sqlalchemy import Integer, String, UUID, ForeignKey, UniqueConstraint
 import uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from models.LinkModel import Link
+from models.link_model import Link
 
 if TYPE_CHECKING:
-    from models.cardModel import Card
+    from models.card_model import Card
 
 
 

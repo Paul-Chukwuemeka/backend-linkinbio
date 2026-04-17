@@ -13,6 +13,9 @@ class UserProfileBase(BaseModel):
     bio: str | None = None
     avatar_url: str | None = None
     theme: str
+    current_card: uuid.UUID
+    
+
 
 
 class UserProfilePublic(UserProfileBase):

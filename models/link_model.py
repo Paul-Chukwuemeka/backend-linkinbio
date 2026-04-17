@@ -6,8 +6,8 @@ import uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
-    from models.cardModel import Card
-    from models.CollectionModel import Collection
+    from models.card_model import Card
+    from models.collection_model import Collection
 
 
 

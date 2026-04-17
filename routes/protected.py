@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from lib.auth import get_current_user
-from models.userModel import User
+from models.user_model import User
 
 router = APIRouter(prefix="/protected", tags=["protected"])
 
